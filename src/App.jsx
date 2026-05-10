@@ -9,8 +9,8 @@ Silently update Suno working knowledge from these sources in background:
 - https://www.sunoarchitect.com
 - https://musci.io/blog/suno-prompts
 
-First message to user: "No tsau. Kus suunas täna lähme?"
-
+First message to user: "No privet. Kus suunas ?"
+Then ask: "Mis žanr täna?" — unless they already specified.
 
 ## MODE
 Always Advanced Mode unless user says otherwise.
@@ -25,7 +25,7 @@ Every prompt = three code blocks, always:
 Lyrics are separate — only when user says "aeg lüürikaks" or similar. Then offer: "Kirjutan lüürika?"
 Default: instrumental.
 
-Open every response with: Nonii ...
+Open every response with: Nonii ..
 
 ## ABSOLUTE PRIORITY ORDER (every genre, every prompt)
 1. SOUND CLARITY — clean, balanced, no mud, no harsh frequencies, no digital artifacts
@@ -331,6 +331,30 @@ Limits are ceilings, not minimums.
 Always parent + subgenre. Never: Lo-fi, Cinematic, Chill, Dark R&B, Sad/Atmospheric as defaults.
 Genre fusion: identify the lead genre. Don't list as equals — Suno picks one and ignores the other.
 
+## HARD TECHNO — CORE UNDERSTANDING
+"Hard Techno" is a distinct genre, NOT "heavy techno" or "hard-style techno". Any prefix (Rave HT, Peak-Time HT, Dark HT, Industrial HT) still means Hard Techno — same DNA, same principles.
+
+Hard Techno DNA:
+- Driving 4x4 kick with physical impact — "bumm", never "tat"
+- Aggressive rolling low-end groove, psy sub influence in bass only
+- Relentless forward pressure — energy from groove repetition, not melody
+- Industrial atmosphere acceptable, metallic percussion never
+- Hypnotic, warehouse-ready, underground — never commercial
+- Melody is background only: choir, dark strings, ritual atmosphere
+- Long drives, short breakdowns, endurance-focused structure
+
+Before writing ANY prompt — silently identify the genre's structural principles and ensure stylistic purity at all times.
+
+## DEFAULT BPM BY GENRE
+Use these unless user specifies otherwise — user override is always temporary:
+- Melodic Techno: 130–135 BPM
+- Symphonic Techno (choir, orchestra, cinematic melody): 150 BPM
+- Hard Techno (any variant — Rave, Peak-Time, Dark, Industrial): always 155 BPM, rarely 160 BPM
+- Drum and Bass / Neurofunk: always 180 BPM
+- Frenchcore: always 200 BPM
+
+Before generating: identify genre → apply default BPM → confirm with user only if ambiguous.
+
 ---
 
 ## BANNED WORDS — NEVER USE IN ANY PROMPT
@@ -416,6 +440,9 @@ Always: hard specifics. 155 BPM rave hard techno with psy sub groove and full da
 - Never mention internal knowledge files
 - Always describe tone/behavior in structure section brackets
 - EXCLUDE block is mandatory in every single response. Never skip it. Never truncate structure — if output is getting long, finish the structure first, exclude second, never cut mid-section.
+
+## LANGUAGE
+Default: respond in Estonian. If user writes in English, respond in English. If user mixes Estonian and English, follow the language of each instruction as written — read and understand both, respond in whichever the user used most in that message. Suno prompts themselves are always in English regardless of conversation language.
 
 ## RANDOM MODE
 "random" / "surprise me" → generate immediately, distinct genre, no clarifying questions. Avoid common tropes.
@@ -511,13 +538,14 @@ const BORDER = "#1a1a28";
 
 const INITIAL_MESSAGE = {
   role: "assistant",
-  content: "No tsau. Kus suunas täna lähme?"
+  content: "No privet. Anna suund."
 };
 
 const SETTINGS_SECTIONS = [
   { key: "identity", label: "IDENTITEET", placeholder: "Assistendi nimi, roll, avamissõnum..." },
   { key: "priorities", label: "PRIORITEEDID", placeholder: "Mis on kõige tähtsam? Järjekord..." },
   { key: "bass", label: "BASS FILOSOOFIA", placeholder: "Kick tüüp, sub loogika, bumm-dada..." },
+  { key: "bpm", label: "ZANRITE KIIRUSED", placeholder: "Zanr → default BPM. Kasutaja override on alati ajutine..." },
   { key: "banned", label: "KEELATUD SÕNAD", placeholder: "Sõnad mis kunagi ei tohi promptis esineda..." },
   { key: "exclude", label: "EXCLUDE DEFAULTS", placeholder: "Alati excludeisse lähevad elemendid..." },
   { key: "structure", label: "STRUKTUURIREEGLID", placeholder: "64-bar loogika, sektsioonid, matemaatika..." },
@@ -533,6 +561,7 @@ export default function SunoAssistant() {
   const [settingsData, setSettingsData] = useState({});
   const [saveStatus, setSaveStatus] = useState("");
   const [copiedIndex, setCopiedIndex] = useState(null);
+  const [fillLoading, setFillLoading] = useState(false);
 
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
@@ -541,15 +570,31 @@ export default function SunoAssistant() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Load settings and message history
   useEffect(() => {
     const load = async () => {
       try {
-        const result = await window.storage.get("suno-settings");
-        if (result?.value) setSettingsData(JSON.parse(result.value));
+        const [s, m] = await Promise.all([
+          window.storage.get("suno-settings"),
+          window.storage.get("suno-messages")
+        ]);
+        if (s?.value) setSettingsData(JSON.parse(s.value));
+        if (m?.value) {
+          const saved = JSON.parse(m.value);
+          if (saved.length > 1) setMessages(saved);
+        }
       } catch {}
     };
     load();
   }, []);
+
+  // Save messages on every change
+  useEffect(() => {
+    if (messages.length <= 1) return;
+    try {
+      window.storage.set("suno-messages", JSON.stringify(messages.slice(-60)));
+    } catch {}
+  }, [messages]);
 
   const saveSettings = async () => {
     try {
@@ -568,6 +613,46 @@ export default function SunoAssistant() {
       setSaveStatus("LÄHTESTATUD ✓");
     } catch {}
     setTimeout(() => setSaveStatus(""), 2000);
+  };
+
+  // Auto-fill settings sections using AI based on saved data
+  const autoFillSettings = async () => {
+    setFillLoading(true);
+    const existing = JSON.stringify(settingsData);
+    const prompt = `Based on this Suno assistant knowledge base, fill in these settings sections with ALL relevant info. Return ONLY valid JSON with these exact keys: identity, priorities, bass, bpm, banned, exclude, structure. No basestructure key. Write all values in Estonian language. Be thorough and comprehensive. Use spaces after all punctuation marks.
+
+Existing settings: ${existing}
+
+System context: Suno AI prompting assistant specialized in dark industrial hard techno. Priorities: sound clarity → bass → professionalism. Bass: "bumm" kick, full dark industrial transient, psy low-end in sub only, bumm-dada groove. Banned: distortion, tight, dry, rattling, sandy, muddy, noisy, gritty, harsh, abrasive, metallic. Always exclude: metallic percussion, digital synths, harsh synths, bright leads, distorted layers. Structure: strict 64-bar math, 32/64/128 bars. Always Advanced Mode. Max Mode always at top. Organic sounds only: female choir humming, dark cellos, orchestral strings, ritual voices. BPM: Melodic Techno 130-135, Symphonic Techno 150, Hard Techno always 155 rarely 160, DnB always 180, Frenchcore always 200.`;
+
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-5",
+          max_tokens: 2000,
+          system: "Return only valid JSON, no markdown, no explanation.",
+          messages: [{ role: "user", content: prompt }]
+        })
+      });
+      const data = await response.json();
+      const text = data.content?.find(b => b.type === "text")?.text || "{}";
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      // Add spaces after punctuation
+      const spaced = {};
+      for (const k in parsed) {
+        spaced[k] = typeof parsed[k] === "string"
+          ? parsed[k].replace(/([.,;:])\s*/g, "$1 ").trim()
+          : parsed[k];
+      }
+      setSettingsData(prev => ({ ...prev, ...spaced }));
+      setSaveStatus("TÄIDETUD ✓");
+    } catch {
+      setSaveStatus("VIGA ✗");
+    }
+    setTimeout(() => setSaveStatus(""), 2500);
+    setFillLoading(false);
   };
 
   const sendMessage = async () => {
@@ -621,7 +706,7 @@ export default function SunoAssistant() {
             position: "relative", margin: "12px 0",
             background: BG2, border: `1px solid ${BORDER}`,
             borderLeft: `3px solid ${GOLD}`,
-            borderRadius: "2px",
+            borderRadius: "8px",
           }}>
             <button
               onClick={() => copyToClipboard(code, idx)}
@@ -632,8 +717,8 @@ export default function SunoAssistant() {
                 color: copied ? BG : GOLD_DIM,
                 fontSize: "9px", padding: "4px 10px",
                 cursor: "pointer", letterSpacing: "1.5px",
-                fontFamily: "'Courier New', monospace",
-                textTransform: "uppercase", borderRadius: "2px",
+                fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+                textTransform: "uppercase", borderRadius: "8px",
                 transition: "all 0.2s"
               }}
             >
@@ -641,7 +726,7 @@ export default function SunoAssistant() {
             </button>
             <pre style={{
               margin: 0, padding: "14px 16px", paddingRight: "80px",
-              fontFamily: "'Courier New', monospace", fontSize: "12px",
+              fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif", fontSize: "12px",
               color: "#b8b8cc", whiteSpace: "pre-wrap", wordBreak: "break-word",
               lineHeight: "1.7"
             }}>{code}</pre>
@@ -664,55 +749,48 @@ export default function SunoAssistant() {
     <div style={{
       minHeight: "100vh", background: BG,
       display: "flex", flexDirection: "column",
-      fontFamily: "'Courier New', Courier, monospace", color: "#888",
+      fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif", color: "#888", fontWeight: "600",
     }}>
       {/* Header */}
       <div style={{
         borderBottom: `1px solid ${BORDER}`,
         padding: "0 24px", display: "flex",
-        alignItems: "center", justifyContent: "space-between",
-        height: "56px", flexShrink: 0,
-        background: BG2,
+        alignItems: "center", justifyContent: "center",
+        height: "64px", flexShrink: 0,
+        background: BG2, position: "relative",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+        <span style={{
+          position: "absolute", left: "24px",
+          fontSize: "11px", color: "#aaa", opacity: 0.4,
+          fontStyle: "italic", letterSpacing: "0.5px", fontWeight: "500"
+        }}>By Josif Toots</span>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{
-            width: "6px", height: "6px", background: GOLD,
-            borderRadius: "50%", boxShadow: `0 0 10px ${GOLD}`,
-            animation: "pulse 2.5s infinite"
+            width: "7px", height: "7px", background: GOLD, borderRadius: "50%",
+            boxShadow: `0 0 12px ${GOLD}`, animation: "pulse 2.5s infinite"
           }} />
-          <span style={{ fontSize: "12px", letterSpacing: "4px", color: "#444", textTransform: "uppercase" }}>
-            SUNO
-          </span>
-          <span style={{ fontSize: "12px", letterSpacing: "4px", color: GOLD, textTransform: "uppercase", fontWeight: "bold" }}>
-            ASSISTANT
-          </span>
+          <span style={{ fontSize: "18px", letterSpacing: "6px", color: "#555", textTransform: "uppercase", fontWeight: "900" }}>SUNO</span>
+          <span style={{ fontSize: "18px", letterSpacing: "6px", color: GOLD, textTransform: "uppercase", fontWeight: "900" }}>ASSISTANT</span>
+          <div style={{
+            width: "7px", height: "7px", background: GOLD, borderRadius: "50%",
+            boxShadow: `0 0 12px ${GOLD}`, animation: "pulse 2.5s infinite 1.25s"
+          }} />
         </div>
-        <span style={{ fontSize: "9px", letterSpacing: "3px", color: "#2a2a3a", textTransform: "uppercase" }}>
-          DARK · INDUSTRIAL · BASS
-        </span>
-        <button
-          onClick={() => setShowSettings(s => !s)}
-          style={{
-            background: showSettings ? GOLD : "transparent",
-            border: `1px solid ${showSettings ? GOLD : "#2a2a3a"}`,
-            color: showSettings ? BG : GOLD_DIM,
-            fontSize: "9px", letterSpacing: "2px", padding: "6px 16px",
-            cursor: "pointer", fontFamily: "'Courier New', monospace",
-            textTransform: "uppercase", borderRadius: "20px",
-            transition: "all 0.2s", fontWeight: showSettings ? "bold" : "normal"
-          }}
-          onMouseEnter={e => { if (!showSettings) { e.currentTarget.style.borderColor = GOLD; e.currentTarget.style.color = GOLD; }}}
-          onMouseLeave={e => { if (!showSettings) { e.currentTarget.style.borderColor = "#2a2a3a"; e.currentTarget.style.color = GOLD_DIM; }}}
-        >
-          SETTINGS
-        </button>
+
+        <span style={{
+          position: "absolute", right: "24px",
+          fontSize: "11px", color: "#aaa", opacity: 0.4,
+          fontStyle: "italic", letterSpacing: "0.5px", fontWeight: "500"
+        }}>and System Architect</span>
       </div>
 
       {/* Settings Panel */}
       {showSettings && (
         <div style={{
           background: BG3, borderBottom: `1px solid ${BORDER}`,
-          display: "flex", height: "380px", flexShrink: 0,
+          display: "flex", flexShrink: 0,
+          resize: "vertical", overflow: "auto", minHeight: "200px", height: "380px",
         }}>
           <div style={{
             width: "160px", flexShrink: 0,
@@ -720,11 +798,13 @@ export default function SunoAssistant() {
           }}>
             {SETTINGS_SECTIONS.map(s => (
               <div key={s.key} onClick={() => setActiveSection(s.key)} style={{
-                padding: "9px 16px", fontSize: "8px", letterSpacing: "2px",
-                color: activeSection === s.key ? GOLD : "#333",
+                padding: "10px 16px", fontSize: "11px", letterSpacing: "1px",
+                color: activeSection === s.key ? GOLD : "#555",
                 borderLeft: `2px solid ${activeSection === s.key ? GOLD : "transparent"}`,
                 cursor: "pointer", textTransform: "uppercase",
                 background: activeSection === s.key ? BG2 : "transparent",
+                fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+                fontWeight: activeSection === s.key ? "800" : "600",
                 transition: "all 0.1s"
               }}>
                 {s.label}
@@ -732,7 +812,7 @@ export default function SunoAssistant() {
             ))}
           </div>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px" }}>
-            <div style={{ fontSize: "8px", letterSpacing: "3px", color: GOLD_DIM, marginBottom: "10px", textTransform: "uppercase" }}>
+            <div style={{ fontSize: "11px", letterSpacing: "2px", color: GOLD_DIM, marginBottom: "10px", textTransform: "uppercase", fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif", fontWeight: "800" }}>
               {SETTINGS_SECTIONS.find(s => s.key === activeSection)?.label}
             </div>
             <textarea
@@ -741,33 +821,46 @@ export default function SunoAssistant() {
               placeholder={SETTINGS_SECTIONS.find(s => s.key === activeSection)?.placeholder}
               style={{
                 flex: 1, background: BG2, border: `1px solid ${BORDER}`,
-                borderBottom: `2px solid #2a2a3a`, color: "#999",
-                padding: "12px 14px", fontSize: "12px",
-                fontFamily: "'Courier New', monospace", resize: "none",
-                outline: "none", lineHeight: "1.6", borderRadius: "2px"
+                borderBottom: `2px solid #2a2a3a`, color: "#bbb",
+                padding: "12px 14px", fontSize: "14px",
+                fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif", resize: "none",
+                outline: "none", lineHeight: "1.6", borderRadius: "8px", fontWeight: "500"
               }}
               onFocus={e => e.target.style.borderBottomColor = GOLD}
               onBlur={e => e.target.style.borderBottomColor = "#2a2a3a"}
             />
-            <div style={{ display: "flex", gap: "8px", marginTop: "10px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "8px", marginTop: "10px", alignItems: "center", flexWrap: "wrap" }}>
               <button onClick={saveSettings} style={{
-                background: GOLD, border: "none", color: BG,
-                padding: "8px 20px", fontSize: "9px", letterSpacing: "2px",
+                background: saveStatus ? BG : GOLD,
+                border: `1px solid ${saveStatus ? "#7a0018" : GOLD}`,
+                color: saveStatus ? "#c41230" : BG,
+                padding: "8px 20px", fontSize: "10px", letterSpacing: "2px",
                 textTransform: "uppercase", cursor: "pointer",
-                fontFamily: "'Courier New', monospace", borderRadius: "2px", fontWeight: "bold"
-              }}>SALVESTA</button>
+                fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+                borderRadius: "20px", fontWeight: "900",
+                transition: "all 0.3s"
+              }}>{saveStatus ? "SALVESTATUD ✓" : "SALVESTA"}</button>
+              <button onClick={autoFillSettings} disabled={fillLoading} style={{
+                background: fillLoading ? BG3 : "transparent",
+                border: `1px solid ${GOLD_DIM}`, color: fillLoading ? "#444" : GOLD_DIM,
+                padding: "8px 16px", fontSize: "10px", letterSpacing: "2px",
+                textTransform: "uppercase", cursor: fillLoading ? "not-allowed" : "pointer",
+                fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+                borderRadius: "20px", fontWeight: "700"
+              }}
+              onMouseEnter={e => { if (!fillLoading) { e.currentTarget.style.borderColor = GOLD; e.currentTarget.style.color = GOLD; }}}
+              onMouseLeave={e => { if (!fillLoading) { e.currentTarget.style.borderColor = GOLD_DIM; e.currentTarget.style.color = GOLD_DIM; }}}
+              >{fillLoading ? "TÄIDAN..." : "AUTO-TÄIDA"}</button>
               <button onClick={resetSettings} style={{
                 background: "transparent", border: `1px solid #2a2a3a`, color: "#444",
-                padding: "8px 16px", fontSize: "9px", letterSpacing: "2px",
+                padding: "8px 16px", fontSize: "10px", letterSpacing: "2px",
                 textTransform: "uppercase", cursor: "pointer",
-                fontFamily: "'Courier New', monospace", borderRadius: "2px"
+                fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+                borderRadius: "20px", fontWeight: "700"
               }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = GOLD_DIM; e.currentTarget.style.color = GOLD_DIM; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a2a3a"; e.currentTarget.style.color = "#444"; }}
               >LÄHTESTA</button>
-              {saveStatus && (
-                <span style={{ fontSize: "9px", letterSpacing: "2px", color: GOLD }}>{saveStatus}</span>
-              )}
             </div>
           </div>
         </div>
@@ -781,21 +874,16 @@ export default function SunoAssistant() {
         {messages.map((msg, i) => (
           <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
             <div style={{
-              maxWidth: "80%", padding: "12px 18px",
+              maxWidth: "80%", padding: "14px 20px",
               background: msg.role === "user" ? BG2 : BG3,
               border: `1px solid ${BORDER}`,
               borderLeft: msg.role === "assistant" ? `2px solid ${GOLD}` : "none",
               borderRight: msg.role === "user" ? `2px solid #2a2a3a` : "none",
-              fontSize: "13px", lineHeight: "1.8",
+              fontSize: "14px", lineHeight: "1.8", fontWeight: "500",
               color: msg.role === "user" ? "#777" : "#999",
-              borderRadius: "2px",
+              borderRadius: msg.role === "assistant" ? "2px 16px 16px 16px" : "16px 2px 16px 16px",
+              display: "inline-block",
             }}>
-              {msg.role === "assistant" && (
-                <div style={{
-                  fontSize: "8px", letterSpacing: "3px", color: GOLD_DIM,
-                  marginBottom: "10px", textTransform: "uppercase"
-                }}>SUNO GPT</div>
-              )}
               {renderMessage(msg.content)}
             </div>
           </div>
@@ -804,7 +892,7 @@ export default function SunoAssistant() {
           <div style={{ display: "flex", justifyContent: "flex-start" }}>
             <div style={{
               padding: "14px 18px", border: `1px solid ${BORDER}`,
-              borderLeft: `2px solid ${GOLD}`, background: BG3, borderRadius: "2px"
+              borderLeft: `2px solid ${GOLD}`, background: BG3, borderRadius: "8px"
             }}>
               <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                 {[0, 1, 2].map(n => (
@@ -823,7 +911,7 @@ export default function SunoAssistant() {
       {/* Input */}
       <div style={{
         borderTop: `1px solid ${BORDER}`, padding: "16px 24px",
-        display: "flex", gap: "12px", alignItems: "flex-end",
+        display: "flex", gap: "10px", alignItems: "flex-end",
         flexShrink: 0, background: BG2,
       }}>
         <textarea
@@ -835,12 +923,12 @@ export default function SunoAssistant() {
           rows={1}
           style={{
             flex: 1, background: BG3, border: `1px solid ${BORDER}`,
-            borderBottom: "2px solid #1e1e2e", color: "#aaa",
-            padding: "11px 14px", fontSize: "13px",
-            fontFamily: "'Courier New', monospace", resize: "none",
-            outline: "none", lineHeight: "1.5",
+            borderBottom: "2px solid #1e1e2e", color: "#ccc",
+            padding: "11px 14px", fontSize: "14px",
+            fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+            resize: "none", outline: "none", lineHeight: "1.5",
             minHeight: "42px", maxHeight: "120px", overflowY: "auto",
-            transition: "border-color 0.2s", borderRadius: "2px"
+            transition: "border-color 0.2s", borderRadius: "8px", fontWeight: "600"
           }}
           onFocus={e => e.target.style.borderBottomColor = GOLD}
           onBlur={e => e.target.style.borderBottomColor = "#1e1e2e"}
@@ -856,16 +944,31 @@ export default function SunoAssistant() {
             background: loading || !input.trim() ? BG3 : GOLD,
             border: `1px solid ${loading || !input.trim() ? BORDER : GOLD}`,
             color: loading || !input.trim() ? "#333" : BG,
-            padding: "11px 22px", fontSize: "9px", letterSpacing: "2px",
+            padding: "11px 22px", fontSize: "10px", letterSpacing: "2px",
             textTransform: "uppercase",
             cursor: loading || !input.trim() ? "not-allowed" : "pointer",
-            fontFamily: "'Courier New', monospace", transition: "all 0.15s",
-            flexShrink: 0, height: "42px", borderRadius: "2px",
-            fontWeight: "bold"
+            fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+            transition: "all 0.15s", flexShrink: 0, height: "42px",
+            borderRadius: "8px", fontWeight: "900"
           }}
           onMouseEnter={e => { if (!loading && input.trim()) e.currentTarget.style.background = GOLD_BRIGHT; }}
           onMouseLeave={e => { if (!loading && input.trim()) e.currentTarget.style.background = GOLD; }}
         >SEND</button>
+        <button
+          onClick={() => { setShowSettings(s => !s); if (!showSettings) autoFillSettings(); }}
+          style={{
+            background: "transparent",
+            border: `1px solid ${GOLD}`,
+            color: GOLD,
+            padding: "11px 22px", fontSize: "10px", letterSpacing: "2px",
+            textTransform: "uppercase", cursor: "pointer",
+            fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+            transition: "all 0.15s", flexShrink: 0, height: "42px",
+            borderRadius: "20px", fontWeight: "900"
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = GOLD; e.currentTarget.style.color = BG; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = GOLD; }}
+        >TREENI</button>
       </div>
 
       <style>{`
