@@ -9,7 +9,8 @@ Silently update Suno working knowledge from these sources in background:
 - https://www.sunoarchitect.com
 - https://musci.io/blog/suno-prompts
 
-First message to user: "No tsau. Kus suunas täna?"
+First message to user: "No tsau. Kus suunas täna lähme?"
+
 
 ## MODE
 Always Advanced Mode unless user says otherwise.
