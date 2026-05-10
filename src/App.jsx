@@ -9,8 +9,8 @@ Silently update Suno working knowledge from these sources in background:
 - https://www.sunoarchitect.com
 - https://musci.io/blog/suno-prompts
 
-First message to user: "Privet. Kus suunas täna?"
-
+First message to user: "No tsau. Kus suunas täna lähme?"
+Then ask: "Mis žanr täna?" — unless they already specified.
 
 ## MODE
 Always Advanced Mode unless user says otherwise.
@@ -25,7 +25,7 @@ Every prompt = three code blocks, always:
 Lyrics are separate — only when user says "aeg lüürikaks" or similar. Then offer: "Kirjutan lüürika?"
 Default: instrumental.
 
-Open every response with: Nonii ..
+Open every response with: Optimized for Suno
 
 ## ABSOLUTE PRIORITY ORDER (every genre, every prompt)
 1. SOUND CLARITY — clean, balanced, no mud, no harsh frequencies, no digital artifacts
@@ -501,6 +501,14 @@ EXCLUDE:
 soft techno, progressive house, uplifting trance, pop vocals, future bass, happy leads, commercial EDM, melodic supersaws, bright arps, metallic percussion, digital synths, harsh synths, distorted melodic layers, noisy textures, bright leads
 \`\`\``;
 
+const GOLD = "#c9a84c";
+const GOLD_DIM = "#8a6a28";
+const GOLD_BRIGHT = "#e8c96a";
+const BG = "#06060a";
+const BG2 = "#0a0a10";
+const BG3 = "#0e0e16";
+const BORDER = "#1a1a28";
+
 const INITIAL_MESSAGE = {
   role: "assistant",
   content: "No tsau. Kus suunas täna lähme?"
@@ -524,6 +532,7 @@ export default function SunoAssistant() {
   const [activeSection, setActiveSection] = useState("identity");
   const [settingsData, setSettingsData] = useState({});
   const [saveStatus, setSaveStatus] = useState("");
+  const [copiedIndex, setCopiedIndex] = useState(null);
 
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
@@ -532,7 +541,6 @@ export default function SunoAssistant() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Load settings from persistent storage
   useEffect(() => {
     const load = async () => {
       try {
@@ -547,11 +555,10 @@ export default function SunoAssistant() {
     try {
       await window.storage.set("suno-settings", JSON.stringify(settingsData));
       setSaveStatus("SALVESTATUD ✓");
-      setTimeout(() => setSaveStatus(""), 2000);
     } catch {
-      setSaveStatus("VIGA");
-      setTimeout(() => setSaveStatus(""), 2000);
+      setSaveStatus("VIGA ✗");
     }
+    setTimeout(() => setSaveStatus(""), 2000);
   };
 
   const resetSettings = async () => {
@@ -559,11 +566,9 @@ export default function SunoAssistant() {
       await window.storage.delete("suno-settings");
       setSettingsData({});
       setSaveStatus("LÄHTESTATUD ✓");
-      setTimeout(() => setSaveStatus(""), 2000);
     } catch {}
+    setTimeout(() => setSaveStatus(""), 2000);
   };
-
-
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -572,7 +577,6 @@ export default function SunoAssistant() {
     setMessages(newMessages);
     setInput("");
     setLoading(true);
-
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -587,80 +591,70 @@ export default function SunoAssistant() {
       const data = await response.json();
       const assistantText = data.content?.find(b => b.type === "text")?.text || "Viga.";
       setMessages(prev => [...prev, { role: "assistant", content: assistantText }]);
-    } catch (e) {
+    } catch {
       setMessages(prev => [...prev, { role: "assistant", content: "API viga. Proovi uuesti." }]);
     }
     setLoading(false);
   };
 
   const handleKey = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
 
-  const copyToClipboard = (text, btn) => {
+  const copyToClipboard = (text, idx) => {
     navigator.clipboard.writeText(text).then(() => {
-      if (btn) {
-        const orig = btn.textContent;
-        btn.textContent = "COPIED ✓";
-        btn.style.color = "#00ff88";
-        btn.style.borderColor = "#00ff88";
-        setTimeout(() => {
-          btn.textContent = orig;
-          btn.style.color = "#666";
-          btn.style.borderColor = "#333";
-        }, 1500);
-      }
+      setCopiedIndex(idx);
+      setTimeout(() => setCopiedIndex(null), 1800);
     });
   };
 
-  // Parse message for code blocks
   const renderMessage = (content) => {
     const parts = content.split(/(```[\s\S]*?```)/g);
+    let codeIdx = 0;
     return parts.map((part, i) => {
       if (part.startsWith("```") && part.endsWith("```")) {
         const code = part.slice(3, -3).replace(/^\w+\n/, "");
+        const idx = codeIdx++;
+        const copied = copiedIndex === idx;
         return (
           <div key={i} style={{
-            position: "relative",
-            margin: "10px 0",
-            background: "#0a0a0a",
-            border: "1px solid #1a1a1a",
-            borderLeft: "3px solid #ff2200",
+            position: "relative", margin: "12px 0",
+            background: BG2, border: `1px solid ${BORDER}`,
+            borderLeft: `3px solid ${GOLD}`,
+            borderRadius: "2px",
           }}>
             <button
-              onClick={(e) => copyToClipboard(code, e.currentTarget)}
+              onClick={() => copyToClipboard(code, idx)}
               style={{
                 position: "absolute", top: 8, right: 8,
-                background: "transparent", border: "1px solid #333",
-                color: "#666", fontSize: "10px", padding: "3px 8px",
-                cursor: "pointer", letterSpacing: "1px", fontFamily: "'Courier New', monospace",
-                textTransform: "uppercase"
+                background: copied ? GOLD : "transparent",
+                border: `1px solid ${copied ? GOLD : "#2a2a3a"}`,
+                color: copied ? BG : GOLD_DIM,
+                fontSize: "9px", padding: "4px 10px",
+                cursor: "pointer", letterSpacing: "1.5px",
+                fontFamily: "'Courier New', monospace",
+                textTransform: "uppercase", borderRadius: "2px",
+                transition: "all 0.2s"
               }}
-              onMouseEnter={e => { e.target.style.color = "#ff2200"; e.target.style.borderColor = "#ff2200"; }}
-              onMouseLeave={e => { e.target.style.color = "#666"; e.target.style.borderColor = "#333"; }}
             >
-              COPY
+              {copied ? "✓ COPIED" : "COPY"}
             </button>
             <pre style={{
-              margin: 0, padding: "14px 16px", paddingRight: "60px",
+              margin: 0, padding: "14px 16px", paddingRight: "80px",
               fontFamily: "'Courier New', monospace", fontSize: "12px",
-              color: "#ccc", whiteSpace: "pre-wrap", wordBreak: "break-word",
-              lineHeight: "1.6"
+              color: "#b8b8cc", whiteSpace: "pre-wrap", wordBreak: "break-word",
+              lineHeight: "1.7"
             }}>{code}</pre>
           </div>
         );
       }
       return (
         <span key={i} style={{ whiteSpace: "pre-wrap" }}>
-          {part.split(/(\*\*.*?\*\*)/g).map((s, j) => {
-            if (s.startsWith("**") && s.endsWith("**")) {
-              return <strong key={j} style={{ color: "#ff2200" }}>{s.slice(2, -2)}</strong>;
-            }
-            return s;
-          })}
+          {part.split(/(\*\*.*?\*\*)/g).map((s, j) =>
+            s.startsWith("**") && s.endsWith("**")
+              ? <strong key={j} style={{ color: GOLD }}>{s.slice(2, -2)}</strong>
+              : s
+          )}
         </span>
       );
     });
@@ -668,101 +662,77 @@ export default function SunoAssistant() {
 
   return (
     <div style={{
-      minHeight: "100vh",
-      background: "#050505",
-      display: "flex",
-      flexDirection: "column",
-      fontFamily: "'Courier New', Courier, monospace",
-      color: "#bbb",
+      minHeight: "100vh", background: BG,
+      display: "flex", flexDirection: "column",
+      fontFamily: "'Courier New', Courier, monospace", color: "#888",
     }}>
       {/* Header */}
       <div style={{
-        borderBottom: "1px solid #111",
-        padding: "0 20px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        height: "52px",
-        flexShrink: 0,
-        position: "relative",
-        overflow: "hidden"
+        borderBottom: `1px solid ${BORDER}`,
+        padding: "0 24px", display: "flex",
+        alignItems: "center", justifyContent: "space-between",
+        height: "56px", flexShrink: 0,
+        background: BG2,
       }}>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
           <div style={{
-            width: "8px", height: "8px",
-            background: "#ff2200",
-            borderRadius: "50%",
-            boxShadow: "0 0 8px #ff2200",
-            animation: "pulse 2.2s infinite"
+            width: "6px", height: "6px", background: GOLD,
+            borderRadius: "50%", boxShadow: `0 0 10px ${GOLD}`,
+            animation: "pulse 2.5s infinite"
           }} />
-          <span style={{ fontSize: "13px", letterSpacing: "3px", color: "#ddd", textTransform: "uppercase" }}>
+          <span style={{ fontSize: "12px", letterSpacing: "4px", color: "#444", textTransform: "uppercase" }}>
             SUNO
           </span>
-          <span style={{ fontSize: "13px", letterSpacing: "3px", color: "#ff2200", textTransform: "uppercase" }}>
+          <span style={{ fontSize: "12px", letterSpacing: "4px", color: GOLD, textTransform: "uppercase", fontWeight: "bold" }}>
             ASSISTANT
           </span>
         </div>
-        <div style={{ fontSize: "10px", letterSpacing: "2px", color: "#333", textTransform: "uppercase" }}>
-          DARK / INDUSTRIAL / BASS
-        </div>
+        <span style={{ fontSize: "9px", letterSpacing: "3px", color: "#2a2a3a", textTransform: "uppercase" }}>
+          DARK · INDUSTRIAL · BASS
+        </span>
         <button
           onClick={() => setShowSettings(s => !s)}
           style={{
-            background: showSettings ? "#ff2200" : "transparent",
-            border: "1px solid " + (showSettings ? "#ff2200" : "#222"),
-            color: showSettings ? "#fff" : "#555",
-            fontSize: "10px", letterSpacing: "2px", padding: "5px 12px",
+            background: showSettings ? GOLD : "transparent",
+            border: `1px solid ${showSettings ? GOLD : "#2a2a3a"}`,
+            color: showSettings ? BG : GOLD_DIM,
+            fontSize: "9px", letterSpacing: "2px", padding: "6px 16px",
             cursor: "pointer", fontFamily: "'Courier New', monospace",
-            textTransform: "uppercase", transition: "all 0.15s"
+            textTransform: "uppercase", borderRadius: "20px",
+            transition: "all 0.2s", fontWeight: showSettings ? "bold" : "normal"
           }}
-          onMouseEnter={e => { if (!showSettings) { e.target.style.borderColor = "#ff2200"; e.target.style.color = "#ff2200"; }}}
-          onMouseLeave={e => { if (!showSettings) { e.target.style.borderColor = "#222"; e.target.style.color = "#555"; }}}
+          onMouseEnter={e => { if (!showSettings) { e.currentTarget.style.borderColor = GOLD; e.currentTarget.style.color = GOLD; }}}
+          onMouseLeave={e => { if (!showSettings) { e.currentTarget.style.borderColor = "#2a2a3a"; e.currentTarget.style.color = GOLD_DIM; }}}
         >
           SETTINGS
         </button>
-
       </div>
 
       {/* Settings Panel */}
       {showSettings && (
         <div style={{
-          background: "#070707",
-          borderBottom: "1px solid #1a1a1a",
-          display: "flex",
-          height: "420px",
-          flexShrink: 0,
-          overflow: "hidden"
+          background: BG3, borderBottom: `1px solid ${BORDER}`,
+          display: "flex", height: "380px", flexShrink: 0,
         }}>
-          {/* Sidebar */}
           <div style={{
-            width: "180px", flexShrink: 0,
-            borderRight: "1px solid #111",
-            overflowY: "auto",
-            padding: "8px 0"
+            width: "160px", flexShrink: 0,
+            borderRight: `1px solid ${BORDER}`, overflowY: "auto", padding: "12px 0"
           }}>
             {SETTINGS_SECTIONS.map(s => (
-              <div
-                key={s.key}
-                onClick={() => setActiveSection(s.key)}
-                style={{
-                  padding: "10px 16px",
-                  fontSize: "9px", letterSpacing: "2px",
-                  color: activeSection === s.key ? "#ff2200" : "#444",
-                  borderLeft: activeSection === s.key ? "2px solid #ff2200" : "2px solid transparent",
-                  cursor: "pointer", textTransform: "uppercase",
-                  background: activeSection === s.key ? "#0a0a0a" : "transparent",
-                  transition: "all 0.1s"
-                }}
-              >
+              <div key={s.key} onClick={() => setActiveSection(s.key)} style={{
+                padding: "9px 16px", fontSize: "8px", letterSpacing: "2px",
+                color: activeSection === s.key ? GOLD : "#333",
+                borderLeft: `2px solid ${activeSection === s.key ? GOLD : "transparent"}`,
+                cursor: "pointer", textTransform: "uppercase",
+                background: activeSection === s.key ? BG2 : "transparent",
+                transition: "all 0.1s"
+              }}>
                 {s.label}
               </div>
             ))}
           </div>
-
-          {/* Editor */}
           <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px" }}>
-            <div style={{ fontSize: "9px", letterSpacing: "2px", color: "#333", marginBottom: "8px", textTransform: "uppercase" }}>
+            <div style={{ fontSize: "8px", letterSpacing: "3px", color: GOLD_DIM, marginBottom: "10px", textTransform: "uppercase" }}>
               {SETTINGS_SECTIONS.find(s => s.key === activeSection)?.label}
             </div>
             <textarea
@@ -770,109 +740,77 @@ export default function SunoAssistant() {
               onChange={e => setSettingsData(prev => ({ ...prev, [activeSection]: e.target.value }))}
               placeholder={SETTINGS_SECTIONS.find(s => s.key === activeSection)?.placeholder}
               style={{
-                flex: 1,
-                background: "#0a0a0a",
-                border: "1px solid #1a1a1a",
-                borderBottom: "2px solid #222",
-                color: "#ccc",
-                padding: "12px 14px",
-                fontSize: "12px",
-                fontFamily: "'Courier New', monospace",
-                resize: "none",
-                outline: "none",
-                lineHeight: "1.6"
+                flex: 1, background: BG2, border: `1px solid ${BORDER}`,
+                borderBottom: `2px solid #2a2a3a`, color: "#999",
+                padding: "12px 14px", fontSize: "12px",
+                fontFamily: "'Courier New', monospace", resize: "none",
+                outline: "none", lineHeight: "1.6", borderRadius: "2px"
               }}
-              onFocus={e => e.target.style.borderBottomColor = "#ff2200"}
-              onBlur={e => e.target.style.borderBottomColor = "#222"}
+              onFocus={e => e.target.style.borderBottomColor = GOLD}
+              onBlur={e => e.target.style.borderBottomColor = "#2a2a3a"}
             />
             <div style={{ display: "flex", gap: "8px", marginTop: "10px", alignItems: "center" }}>
-              <button
-                onClick={saveSettings}
-                style={{
-                  background: "#ff2200", border: "none", color: "#fff",
-                  padding: "8px 20px", fontSize: "10px", letterSpacing: "2px",
-                  textTransform: "uppercase", cursor: "pointer",
-                  fontFamily: "'Courier New', monospace"
-                }}
-              >
-                SALVESTA
-              </button>
-              <button
-                onClick={resetSettings}
-                style={{
-                  background: "transparent", border: "1px solid #222", color: "#444",
-                  padding: "8px 16px", fontSize: "10px", letterSpacing: "2px",
-                  textTransform: "uppercase", cursor: "pointer",
-                  fontFamily: "'Courier New', monospace"
-                }}
-                onMouseEnter={e => { e.target.style.borderColor = "#ff2200"; e.target.style.color = "#ff2200"; }}
-                onMouseLeave={e => { e.target.style.borderColor = "#222"; e.target.style.color = "#444"; }}
-              >
-                LÄHTESTA
-              </button>
+              <button onClick={saveSettings} style={{
+                background: GOLD, border: "none", color: BG,
+                padding: "8px 20px", fontSize: "9px", letterSpacing: "2px",
+                textTransform: "uppercase", cursor: "pointer",
+                fontFamily: "'Courier New', monospace", borderRadius: "2px", fontWeight: "bold"
+              }}>SALVESTA</button>
+              <button onClick={resetSettings} style={{
+                background: "transparent", border: `1px solid #2a2a3a`, color: "#444",
+                padding: "8px 16px", fontSize: "9px", letterSpacing: "2px",
+                textTransform: "uppercase", cursor: "pointer",
+                fontFamily: "'Courier New', monospace", borderRadius: "2px"
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = GOLD_DIM; e.currentTarget.style.color = GOLD_DIM; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a2a3a"; e.currentTarget.style.color = "#444"; }}
+              >LÄHTESTA</button>
               {saveStatus && (
-                <span style={{ fontSize: "10px", letterSpacing: "2px", color: "#00ff88" }}>
-                  {saveStatus}
-                </span>
+                <span style={{ fontSize: "9px", letterSpacing: "2px", color: GOLD }}>{saveStatus}</span>
               )}
             </div>
           </div>
         </div>
       )}
+
+      {/* Messages */}
       <div style={{
-        flex: 1,
-        overflowY: "auto",
-        padding: "20px",
-        display: "flex",
-        flexDirection: "column",
-        gap: "16px",
+        flex: 1, overflowY: "auto", padding: "24px",
+        display: "flex", flexDirection: "column", gap: "16px",
       }}>
         {messages.map((msg, i) => (
-          <div key={i} style={{
-            display: "flex",
-            justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-          }}>
+          <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
             <div style={{
-              maxWidth: "82%",
-              padding: "12px 16px",
-              background: msg.role === "user" ? "#0f0f0f" : "#080808",
-              border: msg.role === "user"
-                ? "1px solid #1a1a1a"
-                : "1px solid #111",
-              borderLeft: msg.role === "assistant" ? "2px solid #ff2200" : "none",
-              borderRight: msg.role === "user" ? "2px solid #444" : "none",
-              fontSize: "13px",
-              lineHeight: "1.7",
-              color: msg.role === "user" ? "#aaa" : "#c8c8c8",
+              maxWidth: "80%", padding: "12px 18px",
+              background: msg.role === "user" ? BG2 : BG3,
+              border: `1px solid ${BORDER}`,
+              borderLeft: msg.role === "assistant" ? `2px solid ${GOLD}` : "none",
+              borderRight: msg.role === "user" ? `2px solid #2a2a3a` : "none",
+              fontSize: "13px", lineHeight: "1.8",
+              color: msg.role === "user" ? "#777" : "#999",
+              borderRadius: "2px",
             }}>
               {msg.role === "assistant" && (
                 <div style={{
-                  fontSize: "9px", letterSpacing: "2px", color: "#ff2200",
-                  marginBottom: "8px", textTransform: "uppercase"
-                }}>
-                  SUNO GPT
-                </div>
+                  fontSize: "8px", letterSpacing: "3px", color: GOLD_DIM,
+                  marginBottom: "10px", textTransform: "uppercase"
+                }}>SUNO GPT</div>
               )}
               {renderMessage(msg.content)}
             </div>
           </div>
         ))}
-
         {loading && (
           <div style={{ display: "flex", justifyContent: "flex-start" }}>
             <div style={{
-              padding: "12px 16px",
-              border: "1px solid #111",
-              borderLeft: "2px solid #ff2200",
-              background: "#080808",
+              padding: "14px 18px", border: `1px solid ${BORDER}`,
+              borderLeft: `2px solid ${GOLD}`, background: BG3, borderRadius: "2px"
             }}>
-              <div style={{ display: "flex", gap: "5px", alignItems: "center" }}>
+              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                 {[0, 1, 2].map(n => (
                   <div key={n} style={{
-                    width: "4px", height: "4px",
-                    background: "#ff2200",
-                    borderRadius: "50%",
-                    animation: `bounce 1s infinite ${n * 0.2}s`
+                    width: "4px", height: "4px", background: GOLD,
+                    borderRadius: "50%", animation: `bounce 1.2s infinite ${n * 0.2}s`
                   }} />
                 ))}
               </div>
@@ -884,13 +822,9 @@ export default function SunoAssistant() {
 
       {/* Input */}
       <div style={{
-        borderTop: "1px solid #111",
-        padding: "16px 20px",
-        display: "flex",
-        gap: "12px",
-        alignItems: "flex-end",
-        flexShrink: 0,
-        background: "#050505"
+        borderTop: `1px solid ${BORDER}`, padding: "16px 24px",
+        display: "flex", gap: "12px", alignItems: "flex-end",
+        flexShrink: 0, background: BG2,
       }}>
         <textarea
           ref={textareaRef}
@@ -900,24 +834,16 @@ export default function SunoAssistant() {
           placeholder="Kirjelda sound, artist, feeling, lugu..."
           rows={1}
           style={{
-            flex: 1,
-            background: "#0a0a0a",
-            border: "1px solid #1a1a1a",
-            borderBottom: "2px solid #222",
-            color: "#ccc",
-            padding: "11px 14px",
-            fontSize: "13px",
-            fontFamily: "'Courier New', monospace",
-            resize: "none",
-            outline: "none",
-            lineHeight: "1.5",
-            minHeight: "42px",
-            maxHeight: "120px",
-            overflowY: "auto",
-            transition: "border-color 0.2s"
+            flex: 1, background: BG3, border: `1px solid ${BORDER}`,
+            borderBottom: "2px solid #1e1e2e", color: "#aaa",
+            padding: "11px 14px", fontSize: "13px",
+            fontFamily: "'Courier New', monospace", resize: "none",
+            outline: "none", lineHeight: "1.5",
+            minHeight: "42px", maxHeight: "120px", overflowY: "auto",
+            transition: "border-color 0.2s", borderRadius: "2px"
           }}
-          onFocus={e => e.target.style.borderBottomColor = "#ff2200"}
-          onBlur={e => e.target.style.borderBottomColor = "#222"}
+          onFocus={e => e.target.style.borderBottomColor = GOLD}
+          onBlur={e => e.target.style.borderBottomColor = "#1e1e2e"}
           onInput={e => {
             e.target.style.height = "auto";
             e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
@@ -927,39 +853,28 @@ export default function SunoAssistant() {
           onClick={sendMessage}
           disabled={loading || !input.trim()}
           style={{
-            background: loading || !input.trim() ? "#0f0f0f" : "#ff2200",
-            border: "none",
-            color: loading || !input.trim() ? "#333" : "#fff",
-            padding: "11px 20px",
-            fontSize: "11px",
-            letterSpacing: "2px",
+            background: loading || !input.trim() ? BG3 : GOLD,
+            border: `1px solid ${loading || !input.trim() ? BORDER : GOLD}`,
+            color: loading || !input.trim() ? "#333" : BG,
+            padding: "11px 22px", fontSize: "9px", letterSpacing: "2px",
             textTransform: "uppercase",
             cursor: loading || !input.trim() ? "not-allowed" : "pointer",
-            fontFamily: "'Courier New', monospace",
-            transition: "all 0.15s",
-            flexShrink: 0,
-            height: "42px"
+            fontFamily: "'Courier New', monospace", transition: "all 0.15s",
+            flexShrink: 0, height: "42px", borderRadius: "2px",
+            fontWeight: "bold"
           }}
-          onMouseEnter={e => { if (!loading && input.trim()) e.target.style.background = "#cc1a00"; }}
-          onMouseLeave={e => { if (!loading && input.trim()) e.target.style.background = "#ff2200"; }}
-        >
-          SEND
-        </button>
+          onMouseEnter={e => { if (!loading && input.trim()) e.currentTarget.style.background = GOLD_BRIGHT; }}
+          onMouseLeave={e => { if (!loading && input.trim()) e.currentTarget.style.background = GOLD; }}
+        >SEND</button>
       </div>
 
       <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.4; transform: scale(0.8); }
-        }
-        @keyframes bounce {
-          0%, 60%, 100% { transform: translateY(0); }
-          30% { transform: translateY(-6px); }
-        }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: #050505; }
-        ::-webkit-scrollbar-thumb { background: #1a1a1a; }
-        ::-webkit-scrollbar-thumb:hover { background: #ff2200; }
+        @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.3;transform:scale(0.7)} }
+        @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
+        ::-webkit-scrollbar{width:3px}
+        ::-webkit-scrollbar-track{background:${BG}}
+        ::-webkit-scrollbar-thumb{background:#1a1a28}
+        ::-webkit-scrollbar-thumb:hover{background:${GOLD_DIM}}
       `}</style>
     </div>
   );
